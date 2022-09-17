@@ -1045,7 +1045,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 log.trace("Requesting metadata update for topic {}.", topic);
             }
             metadata.add(topic, nowMs + elapsed);
+            // 在Producer管理元数据的时候，元数据是有版本号，每一次成功更新元数据，都会递增版本号
             int version = metadata.requestUpdateForTopic(topic);
+            // 拉取元数据的操作是由sender线程操作的
             sender.wakeup();
             try {
                 metadata.awaitUpdate(version, remainingWaitMs);
@@ -1066,6 +1068,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             }
             metadata.maybeThrowExceptionForTopic(topic);
             remainingWaitMs = maxWaitMs - elapsed;
+            // 尝试获取下，我们要发送消息的这个topic对应分区的信息
+            // 如果这个值不是null，则说明前面sender线程已经获取到了元数据
             partitionsCount = cluster.partitionCountForTopic(topic);
         } while (partitionsCount == null || (partition != null && partition >= partitionsCount));
 

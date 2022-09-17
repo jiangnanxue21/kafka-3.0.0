@@ -585,9 +585,11 @@ class KafkaController(val config: KafkaConfig,
       deadBrokers.filter(id => controllerContext.shuttingDownBrokerIds.remove(id))
     if (deadBrokersThatWereShuttingDown.nonEmpty)
       info(s"Removed ${deadBrokersThatWereShuttingDown.mkString(",")} from list of shutting down brokers.")
+    // 执行副本清扫工作
     val allReplicasOnDeadBrokers = controllerContext.replicasOnBrokers(deadBrokers.toSet)
     onReplicasBecomeOffline(allReplicasOnDeadBrokers)
 
+    // 取消这些Broker上注册的zk监听器
     unregisterBrokerModificationsHandler(deadBrokers)
   }
 

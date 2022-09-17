@@ -46,8 +46,6 @@ plugins {
 spotless {
   scala {
     target 'streams/**/*.scala'
-    scalafmt("$versions.scalafmt").configFile('checkstyle/.scalafmt.conf')
-    licenseHeaderFile 'checkstyle/java.header', 'package'
   }
 }
 
@@ -55,6 +53,13 @@ allprojects {
 
   repositories {
     mavenCentral()
+    gradle.projectsEvaluated {
+      tasks.withType(JavaCompile) {
+        options.encoding = 'UTF-8'
+        // Try to turn them all off automatically
+        options.compilerArgs << '-Xlint:none'
+      }
+    }
   }
 
   dependencyUpdates {
@@ -103,7 +108,7 @@ ext {
   defaultMaxHeapSize = "2g"
   defaultJvmArgs = ["-Xss4m", "-XX:+UseParallelGC"]
   if (JavaVersion.current() == JavaVersion.VERSION_16)  
-    defaultJvmArgs.add("--illegal-access=permit")
+    defaultJvmArgs.add("--illegal-access=warn")
 
   userMaxForks = project.hasProperty('maxParallelForks') ? maxParallelForks.toInteger() : null
   userIgnoreFailures = project.hasProperty('ignoreFailures') ? ignoreFailures : false
@@ -161,7 +166,6 @@ if (file('.git').exists()) {
         '**/README.md',
         '**/id_rsa',
         '**/id_rsa.pub',
-        'checkstyle/suppressions.xml',
         'streams/quickstart/java/src/test/resources/projects/basic/goal.txt',
         'streams/streams-scala/logs/*',
         'licenses/*',
@@ -220,18 +224,7 @@ subprojects {
 
   tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
-    options.compilerArgs << "-Xlint:all"
-    // temporary exclusions until all the warnings are fixed
-    if (!project.path.startsWith(":connect"))
-      options.compilerArgs << "-Xlint:-rawtypes"
-    options.compilerArgs << "-Xlint:-serial"
-    options.compilerArgs << "-Xlint:-try"
-    options.compilerArgs << "-Werror"
-    // --release is the recommended way to select the target release, but it's only supported in Java 9 so we also
-    // set --source and --target via `sourceCompatibility` and `targetCompatibility`. If/when Gradle supports `--release`
-    // natively (https://github.com/gradle/gradle/issues/2510), we should switch to that.
-    if (JavaVersion.current().isJava9Compatible())
-      options.compilerArgs << "--release" << minJavaVersion
+    // Try to turn them all off automatically
   }
 
   if (shouldPublish) {
@@ -549,26 +542,12 @@ subprojects {
 
   tasks.withType(ScalaCompile) {
     scalaCompileOptions.additionalParameters = [
-      "-deprecation",
-      "-unchecked",
       "-encoding", "utf8",
       "-Xlog-reflective-calls",
       "-feature",
       "-language:postfixOps",
       "-language:implicitConversions",
-      "-language:existentials",
-      "-Xlint:constant",
-      "-Xlint:delayedinit-select",
-      "-Xlint:doc-detached",
-      "-Xlint:missing-interpolator",
-      "-Xlint:nullary-unit",
-      "-Xlint:option-implicit",
-      "-Xlint:package-object-classes",
-      "-Xlint:poly-implicit-overload",
-      "-Xlint:private-shadow",
-      "-Xlint:stars-align",
-      "-Xlint:type-parameter-shadow",
-      "-Xlint:unused"
+      "-language:existentials"
     ]
 
     // See README.md for details on this option and the meaning of each value
@@ -586,7 +565,6 @@ subprojects {
     }
 
     if (versions.baseScala != '2.12') {
-      scalaCompileOptions.additionalParameters += ["-opt-warnings", "-Xlint:strict-unsealed-patmat"]
       // Scala 2.13.2 introduces compiler warnings suppression, which is a pre-requisite for -Xfatal-warnings
       scalaCompileOptions.additionalParameters += ["-Xfatal-warnings"]
     }
@@ -595,9 +573,7 @@ subprojects {
     // Scala 2.13 removes them, see https://github.com/scala/scala/pull/6502 and https://github.com/scala/scala/pull/5969
     if (versions.baseScala == '2.12') {
       scalaCompileOptions.additionalParameters += [
-        "-Xlint:by-name-right-associative",
-        "-Xlint:nullary-override",
-        "-Xlint:unsound-match"
+
       ]
     }
 
@@ -611,23 +587,6 @@ subprojects {
     }
   }
 
-  checkstyle {
-    configFile = new File(rootDir, "checkstyle/checkstyle.xml")
-    configProperties = checkstyleConfigProperties("import-control.xml")
-    toolVersion = versions.checkstyle
-  }
-
-  configure(checkstyleMain) {
-    group = 'Verification'
-    description = 'Run checkstyle on all main Java sources'
-  }
-
-  configure(checkstyleTest) {
-    group = 'Verification'
-    description = 'Run checkstyle on all test Java sources'
-  }
-
-  test.dependsOn('checkstyleMain', 'checkstyleTest')
 
   spotbugs {
     toolVersion = versions.spotbugs
@@ -734,11 +693,6 @@ def fineTuneEclipseClasspathFile(eclipse, project) {
   }
 }
 
-def checkstyleConfigProperties(configFileName) {
-  [importControlFile: "$rootDir/checkstyle/$configFileName",
-   suppressionsFile: "$rootDir/checkstyle/suppressions.xml",
-   headerFile: "$rootDir/checkstyle/java.header"]
-}
 
 // Aggregates all jacoco results into the root project directory
 if (userEnableTestCoverage) {
@@ -1069,9 +1023,7 @@ project(':core') {
 
   systemTestLibs.dependsOn('jar', 'testJar', 'copyDependantTestLibs')
 
-  checkstyle {
-    configProperties = checkstyleConfigProperties("import-control-core.xml")
-  }
+
 
   sourceSets {
     // Set java/scala source folders in the `scala` block to enable joint compilation
@@ -1157,9 +1109,6 @@ project(':examples') {
     enabled = false
   }
 
-  checkstyle {
-    configProperties = checkstyleConfigProperties("import-control-core.xml")
-  }
 }
 
 project(':generator') {
@@ -2179,7 +2128,6 @@ project(':jmh-benchmarks') {
 
   tasks.withType(JavaCompile) {
     // Suppress warning caused by code generated by jmh: `warning: [cast] redundant cast to long`
-    options.compilerArgs << "-Xlint:-cast"
   }
 
   jar {
@@ -2188,9 +2136,6 @@ project(':jmh-benchmarks') {
     }
   }
 
-  checkstyle {
-    configProperties = checkstyleConfigProperties("import-control-jmh-benchmarks.xml")
-  }
 
   task jmh(type: JavaExec, dependsOn: [':jmh-benchmarks:clean', ':jmh-benchmarks:shadowJar']) {
 

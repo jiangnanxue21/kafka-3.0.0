@@ -293,9 +293,9 @@ public class NetworkClient implements KafkaClient {
         if (node.isEmpty())
             throw new IllegalArgumentException("Cannot connect to empty node " + node);
 
+        // 判断是否可以尝试建立网络
         if (isReady(node, now))
             return true;
-
         if (connectionStates.canConnect(node.idString(), now))
             // if we are interested in sending to a node and we don't have a connection to it, initiate one
             initiateConnect(node, now);
@@ -427,6 +427,7 @@ public class NetworkClient implements KafkaClient {
     public boolean isReady(Node node, long now) {
         // if we need to update our metadata now declare all requests unready to make metadata requests first
         // priority
+        // !metadataUpdater.isUpdateDue(now) : 不能是更新元数据的时候
         return !metadataUpdater.isUpdateDue(now) && canSendRequest(node.idString(), now);
     }
 
@@ -437,6 +438,11 @@ public class NetworkClient implements KafkaClient {
      * @param now the current timestamp
      */
     private boolean canSendRequest(String node, long now) {
+        /**
+         * connectionStates.isReady(node, now) ： 生产者缓存连接，判断缓存里面是否已经建立连接
+         * selector.isChannelReady(node) ： selector -> 多个kafka channel
+         * inFlightRequests.canSendMore(node) ： 每个往broker主机上面发送消息的连接，最多能容忍5个消息发送出去了还没有接受到响应（影响发送数据的顺序）
+         */
         return connectionStates.isReady(node, now) && selector.isChannelReady(node) &&
             inFlightRequests.canSendMore(node);
     }
@@ -520,6 +526,13 @@ public class NetworkClient implements KafkaClient {
                 request,
                 send,
                 now);
+        /**
+         * 这儿往inFlightRequests组件里存Request请求。
+         * 存储的就是还没有接受到相应的请求
+         * 默认最多存5个
+         *
+         * 如果我们的请求发送出去了，然后也成功接受到了请求，后面会到这儿把这个请求移除
+         */
         this.inFlightRequests.add(inFlightRequest);
         selector.send(new NetworkSend(clientRequest.destination(), send));
     }
@@ -974,6 +987,7 @@ public class NetworkClient implements KafkaClient {
             connectionStates.connecting(nodeConnectionId, now, node.host());
             InetAddress address = connectionStates.currentAddress(nodeConnectionId);
             log.debug("Initiating connection to node {} using address {}", node, address);
+            // 尝试建立连接
             selector.connect(nodeConnectionId,
                     new InetSocketAddress(address, node.port()),
                     this.socketSendBuffer,

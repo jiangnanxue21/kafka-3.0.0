@@ -445,7 +445,9 @@ public final class RecordAccumulator {
         long nextReadyCheckDelayMs = Long.MAX_VALUE;
         Set<String> unknownLeaderTopics = new HashSet<>();
 
+        // waiters里面有数据，说明内存不够 -> BufferPool里面的this.waiters.addLast(moreMemory);
         boolean exhausted = this.free.queued() > 0;
+        // 遍历所有的分区
         for (Map.Entry<TopicPartition, Deque<ProducerBatch>> entry : this.batches.entrySet()) {
             Deque<ProducerBatch> deque = entry.getValue();
             synchronized (deque) {
@@ -454,6 +456,7 @@ public final class RecordAccumulator {
                 ProducerBatch batch = deque.peekFirst();
                 if (batch != null) {
                     TopicPartition part = entry.getKey();
+                    // 根据分区可以获取分区在哪一台leader partition上
                     Node leader = cluster.leaderFor(part);
                     if (leader == null) {
                         // This is a partition for which leader is not known, but messages are available to send.
@@ -461,11 +464,19 @@ public final class RecordAccumulator {
                         unknownLeaderTopics.add(part.topic());
                     } else if (!readyNodes.contains(leader) && !isMuted(part)) {
                         long waitedTimeMs = batch.waitedTimeMs(nowMs);
+                        // backingOff: 重新发送的数据的时间到了
                         boolean backingOff = batch.attempts() > 0 && waitedTimeMs < retryBackoffMs;
+                        // lingerMs: 默认是0，来一条消息发送一条消息
                         long timeToWaitMs = backingOff ? retryBackoffMs : lingerMs;
+                        // > 1说明至少有一个批次已经写满了
                         boolean full = deque.size() > 1 || batch.isFull();
                         boolean expired = waitedTimeMs >= timeToWaitMs;
                         boolean transactionCompleting = transactionManager != null && transactionManager.isCompleting();
+                        /**
+                         * 1. full: 发送无论时间有没有到
+                         * 2. expired ：时间到了，批次没写满也得发送
+                         * 3. exhausted: 内存不够，消息发送之后，会自动释放内存
+                         */
                         boolean sendable = full
                             || expired
                             || exhausted

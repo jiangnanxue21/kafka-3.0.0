@@ -324,13 +324,19 @@ public class Sender implements Runnable {
         }
 
         long currentTimeMs = time.milliseconds();
+        // 有元数据的情况下进行
+        // 网络没有建立好，是不会发送消息的
         long pollTimeout = sendProducerData(currentTimeMs);
+        // 第一次的话去拉取元数据
+        // 真正执行网络操作的都是这个NetworkClient组件，包括发送请求，接受响应
         client.poll(pollTimeout, currentTimeMs);
     }
 
     private long sendProducerData(long now) {
-        Cluster cluster = metadata.fetch();
+        // 第二次进来的话已经有元数据
+        Cluster cluster = metadata.fetch(); // 获取元数据
         // get the list of partitions with data ready to send
+        // 判断哪些partition哪些队列可以发送，获取partition的leader partition对应的broker主机
         RecordAccumulator.ReadyCheckResult result = this.accumulator.ready(cluster, now);
 
         // if there are any partitions whose leaders are not known yet, force metadata update
@@ -351,6 +357,7 @@ public class Sender implements Runnable {
         long notReadyTimeout = Long.MAX_VALUE;
         while (iter.hasNext()) {
             Node node = iter.next();
+            // 检查与要发送的主机的网络是否已经建立好
             if (!this.client.ready(node, now)) {
                 iter.remove();
                 notReadyTimeout = Math.min(notReadyTimeout, this.client.pollDelayMs(node, now));
@@ -358,6 +365,8 @@ public class Sender implements Runnable {
         }
 
         // create produce requests
+        // 要发送的partition有很多个，很有可能有一些partition的leader partition是在同一台服务器上的
+        // 按照broker的partition进行分组
         Map<Integer, List<ProducerBatch>> batches = this.accumulator.drain(cluster, result.readyNodes, this.maxRequestSize, now);
         addToInflightBatches(batches);
         if (guaranteeMessageOrder) {
@@ -368,6 +377,7 @@ public class Sender implements Runnable {
             }
         }
 
+        // 放弃超时的batch
         accumulator.resetNextBatchExpiryTime();
         List<ProducerBatch> expiredInflightBatches = getExpiredInflightBatches(now);
         List<ProducerBatch> expiredBatches = this.accumulator.expiredBatches(now);

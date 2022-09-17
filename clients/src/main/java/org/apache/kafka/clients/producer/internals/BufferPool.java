@@ -113,7 +113,7 @@ public class BufferPool {
 
         ByteBuffer buffer = null;
         this.lock.lock();
-
+  
         if (this.closed) {
             this.lock.unlock();
             throw new KafkaException("Producer closed while allocating memory");
@@ -121,11 +121,13 @@ public class BufferPool {
 
         try {
             // check if we have a free buffer of the right size pooled
+            // poolableSize代表的是一个批次的大小，默认，一个批次的大小16k
             if (size == poolableSize && !this.free.isEmpty())
                 return this.free.pollFirst();
 
             // now check if the request is immediately satisfiable with the
             // memory on hand or if we need to block
+            // 内存空余 = 内存的个数 * 批次的大小
             int freeListSize = freeSize() * this.poolableSize;
             if (this.nonPooledAvailableMemory + freeListSize >= size) {
                 // we have enough unallocated or pooled memory to immediately
@@ -138,14 +140,17 @@ public class BufferPool {
                 Condition moreMemory = this.lock.newCondition();
                 try {
                     long remainingTimeToBlockNs = TimeUnit.MILLISECONDS.toNanos(maxTimeToBlockMs);
+                    // 等待 被人释放内存
                     this.waiters.addLast(moreMemory);
                     // loop over and over until we have a buffer or have reserved
                     // enough memory to allocate one
+                    // 一下子分配不了很多内存，有的话可以分配
                     while (accumulated < size) {
                         long startWaitNs = time.nanoseconds();
                         long timeNs;
                         boolean waitingTimeElapsed;
                         try {
+                            // 等待释放内存
                             waitingTimeElapsed = !moreMemory.await(remainingTimeToBlockNs, TimeUnit.NANOSECONDS);
                         } finally {
                             long endWaitNs = time.nanoseconds();
@@ -258,6 +263,7 @@ public class BufferPool {
     public void deallocate(ByteBuffer buffer, int size) {
         lock.lock();
         try {
+            // 如果换回来的内存的大小 = 一个批次的大小
             if (size == this.poolableSize && size == buffer.capacity()) {
                 buffer.clear();
                 this.free.add(buffer);

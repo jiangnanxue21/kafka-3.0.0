@@ -103,7 +103,7 @@ public class Selector implements Selectable, AutoCloseable {
 
     private final Logger log;
     private final java.nio.channels.Selector nioSelector;
-    private final Map<String, KafkaChannel> channels;
+    private final Map<String, KafkaChannel> channels; // <broker, channel>
     private final Set<KafkaChannel> explicitlyMutedChannels;
     private boolean outOfMemory;
     private final List<NetworkSend> completedSends;
@@ -248,6 +248,7 @@ public class Selector implements Selectable, AutoCloseable {
     @Override
     public void connect(String id, InetSocketAddress address, int sendBufferSize, int receiveBufferSize) throws IOException {
         ensureNotRegistered(id);
+        // 获取到socketChannel
         SocketChannel socketChannel = SocketChannel.open();
         SelectionKey key = null;
         try {
@@ -255,10 +256,12 @@ public class Selector implements Selectable, AutoCloseable {
             boolean connected = doConnect(socketChannel, address);
             key = registerChannel(id, socketChannel, SelectionKey.OP_CONNECT);
 
+            // 因为是非阻塞模式，正常情况是连接不了的
             if (connected) {
                 // OP_CONNECT won't trigger for immediately connected channels
                 log.debug("Immediately connected to node {}", id);
                 immediatelyConnectedKeys.add(key);
+                // 取消前面注册的事件
                 key.interestOps(0);
             }
         } catch (IOException | RuntimeException e) {
@@ -289,6 +292,10 @@ public class Selector implements Selectable, AutoCloseable {
             socket.setSendBufferSize(sendBufferSize);
         if (receiveBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
             socket.setReceiveBufferSize(receiveBufferSize);
+        // 默认是false, 代表是开启Nagle算法
+        // 它会把网络中的一些小的数据包组合成一个大的数据包，然后发送
+
+        // kafka不能设置成false，有时候可能会比较小，就不会发送，显然不合理
         socket.setTcpNoDelay(true);
     }
 
@@ -462,7 +469,7 @@ public class Selector implements Selectable, AutoCloseable {
 
         /* check ready keys */
         long startSelect = time.nanoseconds();
-        int numReadyKeys = select(timeout);
+        int numReadyKeys = select(timeout); // 从Selector上找到多少个key注册了
         long endSelect = time.nanoseconds();
         this.sensors.selectTime.record(endSelect - startSelect, time.milliseconds());
 
@@ -522,9 +529,11 @@ public class Selector implements Selectable, AutoCloseable {
 
             try {
                 /* complete any connections that have finished their handshake (either normally or immediately) */
+                // 建立的时候走这个分支
                 if (isImmediatelyConnected || key.isConnectable()) {
+                    // 最后完成网络的连接，之前初始化的时候，没有网络连接
                     if (channel.finishConnect()) {
-                        this.connected.add(nodeId);
+                        this.connected.add(nodeId); // 存储
                         this.sensors.connectionCreated.record();
 
                         SocketChannel socketChannel = (SocketChannel) key.channel();

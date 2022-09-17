@@ -53,6 +53,8 @@ object RequestChannel extends Logging {
   def isRequestLoggingEnabled: Boolean = requestLogger.underlying.isDebugEnabled
 
   sealed trait BaseRequest
+
+  // 标志位，当broker进程关闭的时候，会发送shutdownRequest到专属的请求处理线程。该线程接收到请求后，会触发一系列的broker关闭逻辑
   case object ShutdownRequest extends BaseRequest
 
   case class Session(principal: KafkaPrincipal, clientAddress: InetAddress) {
@@ -78,10 +80,10 @@ object RequestChannel extends Logging {
     }
   }
 
-  class Request(val processor: Int,
+  class Request(val processor: Int, // Processor 线程的序号，即这个请求是由哪个 Processor 线程接收处理的
                 val context: RequestContext,
-                val startTimeNanos: Long,
-                val memoryPool: MemoryPool,
+                val startTimeNanos: Long, // 记录了 Request 对象被创建的时间，主要用于各种时间统计指标的计算
+                val memoryPool: MemoryPool, // 非阻塞式的内存缓冲区，主要作用是避免 Request 对象无限使用内存。
                 @volatile var buffer: ByteBuffer,
                 metrics: RequestChannel.Metrics,
                 val envelope: Option[RequestChannel.Request] = None) extends BaseRequest {
@@ -437,9 +439,11 @@ class RequestChannel(val queueSize: Int,
       case _: StartThrottlingResponse | _: EndThrottlingResponse => ()
     }
 
+    // // 找出response对应的Processor线程，即request当初是由哪个Processor线程处理的
     val processor = processors.get(response.processor)
     // The processor may be null if it was shutdown. In this case, the connections
     // are closed, so the response is dropped.
+    // 将response对象放置到对应Processor线程的Response队列中
     if (processor != null) {
       processor.enqueueResponse(response)
     }

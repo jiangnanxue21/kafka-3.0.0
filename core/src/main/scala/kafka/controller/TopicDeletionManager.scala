@@ -24,6 +24,7 @@ import org.apache.kafka.common.TopicPartition
 import scala.collection.Set
 import scala.collection.mutable
 
+// 负责实现删除主题以及后续的操作
 trait DeletionClient {
   def deleteTopic(topic: String, epochZkVersion: Int): Unit
   def deleteTopicDeletions(topics: Seq[String], epochZkVersion: Int): Unit
@@ -31,21 +32,28 @@ trait DeletionClient {
   def sendMetadataUpdate(partitions: Set[TopicPartition]): Unit
 }
 
+// 实现了DeletionClient接口的类
 class ControllerDeletionClient(controller: KafkaController, zkClient: KafkaZkClient) extends DeletionClient {
   override def deleteTopic(topic: String, epochZkVersion: Int): Unit = {
+    // 删除/brokers/topics/<topic>节点
     zkClient.deleteTopicZNode(topic, epochZkVersion)
+    // 删除/config/topics/<topic>节点
     zkClient.deleteTopicConfigs(Seq(topic), epochZkVersion)
+    // 删除/admin/delete_topics/<topic>节点
     zkClient.deleteTopicDeletions(Seq(topic), epochZkVersion)
   }
 
+  // 删除/admin/delete_topics下的给定的topics子节点
   override def deleteTopicDeletions(topics: Seq[String], epochZkVersion: Int): Unit = {
     zkClient.deleteTopicDeletions(topics, epochZkVersion)
   }
 
+  // 取消/brokers/topics/<topic>节点数据变更的监听
   override def mutePartitionModifications(topic: String): Unit = {
     controller.unregisterPartitionModificationsHandlers(Seq(topic))
   }
 
+  // 向集群Broker发送指定分区的元数据更新请求
   override def sendMetadataUpdate(partitions: Set[TopicPartition]): Unit = {
     controller.sendUpdateMetadataRequest(controller.controllerContext.liveOrShuttingDownBrokerIds.toSeq, partitions)
   }
@@ -84,6 +92,8 @@ class ControllerDeletionClient(controller: KafkaController, zkClient: KafkaZkCli
  *    it marks the topic for deletion retry.
  * @param controller
  */
+
+// 主题删除管理器类，定义了若干方法维护主题删除前后集群状态的正确
 class TopicDeletionManager(config: KafkaConfig,
                            controllerContext: ControllerContext,
                            replicaStateMachine: ReplicaStateMachine,

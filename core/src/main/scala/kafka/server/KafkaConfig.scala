@@ -138,7 +138,6 @@ object Defaults {
   val LogPreAllocateEnable = false
 
   /* See `TopicConfig.MESSAGE_FORMAT_VERSION_CONFIG` for details */
-  @deprecated("3.0")
   val LogMessageFormatVersion = KAFKA_3_0_IV1.version
 
   val LogMessageTimestampType = "CreateTime"
@@ -451,7 +450,6 @@ object KafkaConfig {
   val LogPreAllocateProp = "log.preallocate"
 
   /* See `TopicConfig.MESSAGE_FORMAT_VERSION_CONFIG` for details */
-  @deprecated("3.0")
   val LogMessageFormatVersionProp = LogConfigPrefix + "message.format.version"
 
   val LogMessageTimestampTypeProp = LogConfigPrefix + "message.timestamp.type"
@@ -1641,7 +1639,6 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   private val logMessageFormatVersionString = getString(KafkaConfig.LogMessageFormatVersionProp)
 
   /* See `TopicConfig.MESSAGE_FORMAT_VERSION_CONFIG` for details */
-  @deprecated("3.0")
   lazy val logMessageFormatVersion =
     if (LogConfig.shouldIgnoreMessageFormatVersion(interBrokerProtocolVersion))
       ApiVersion(Defaults.LogMessageFormatVersion)

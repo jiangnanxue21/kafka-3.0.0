@@ -94,6 +94,11 @@ public class ProducerInterceptorsTest {
         }
     }
 
+    public static void main(String[] args) {
+        ProducerInterceptorsTest test = new ProducerInterceptorsTest();
+        test.testOnSendChain();
+    }
+
     @Test
     public void testOnSendChain() {
         List<ProducerInterceptor<Integer, String>> interceptorList = new ArrayList<>();
